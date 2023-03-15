@@ -1,35 +1,37 @@
-// Import necessary objects from the "db.js" module
 import { assets, playlists, flags } from "./db.js";
 
-// Check if indexedDB is supported by the browser
+// Check if the browser supports indexedDB
 if (!window.indexedDB) {
-	console.log("Upgrade your browser to use indexedDB.");
+	// If not, display a message to the user
+	const messageElement = document.createElement("div");
+	messageElement.style = "display: block; font-size: 18px; text-align: center; background-color: blue;";
+	messageElement.innerText = 'Your browser does not support "indexedDB". Please upgrade your browser to the latest version, or use a different browser to ensure full functionality!';
+	document.body.appendChild(messageElement);
 }
 
-// Get the value of the "hasRun" flag and return true if it's not set
+// Check if the app is running for the first time
 const getFirstRun = async () => {
 	const runFlag = await flags.getItem("hasRun");
 	return !runFlag;
 };
 
-// Set the value of the "hasRun" flag to true
+// Set the first run flag
 const setFirstRun = async () => {
 	await flags.setItem("hasRun", true);
 };
 
-// Set the playlist in the playlists object
+// Set the playlist data
 const setPlaylist = async () => {
-	// Get the playlist data from a JSON file
+	// Get the playlist data from the JSON file, and store it in the DB
 	const response = await axios.get("./playlist.json");
 	const data = response.data;
-
-	// Store the playlist data in the "playlist" key of the playlists object
 	await playlists.setItem("playlist", data);
 	return data;
 };
 
-// Update the playlist to include the "location" property for each item
+// Update the playlist data
 const updatePlaylist = async (data) => {
+	// Loop through the playlist data, updating the location of each media asset to its DB key
 	const updatedPlaylist = data.map((playlistItem) => {
 		return {
 			...playlistItem,
@@ -40,60 +42,95 @@ const updatePlaylist = async (data) => {
 	await playlists.setItem("playlist", updatedPlaylist);
 };
 
-// Set the media assets in the assets object
+// Set the media assets
 const setMediaAssets = async (data) => {
+	// Loop through the playlist data, fetching the each associated media asset and storing it in the DB
 	data.forEach(async (playlistItem) => {
-		// Get the media asset data and store it in the assets object with the playlist item name as the key
 		const mediaAsset = await axios.get(playlistItem.location, { responseType: "blob" });
 		await assets.setItem(playlistItem.name, mediaAsset.data);
 	});
 };
 
-// Get the playlist from the playlists object
+// Get the playlist data from the DB
 const getPlaylist = async () => {
 	const playlist = await playlists.getItem("playlist");
 	return playlist;
 };
 
-// Initialize a count variable and play the media in the playlist
-let count = 0;
-const playMedia = async (playlist) => {
-	// Get the index of the current item in the playlist
-	let i = count % playlist.length;
-	// Get the location of the current item in the playlist
-	let playlistItem = playlist[i].location;
-	// Get the media asset data from the assets object using the current item's name as the key
-	let mediaAsset = await assets.getItem(playlistItem);
+// Front load the media assets
+const frontLoadMediaAssets = (playlist) => {
+	// Loop through the playlist and get the media asset from the database, then create an object URL for it
+	playlist.forEach(async (playlistItem) => {
+		const mediaAsset = await assets.getItem(playlistItem.location);
+		const mediaAssetURL = URL.createObjectURL(mediaAsset);
 
-	// If the media asset is a video, display the video player and play the video
-	if (mediaAsset.type === "video/mp4") {
-		const imgViewer = document.querySelector("#imageViewer");
-		imgViewer.style.display = "none";
-		const vidPlayer = document.querySelector("#videoPlayer");
-		vidPlayer.style.display = "block";
-		vidPlayer.setAttribute("src", URL.createObjectURL(mediaAsset));
-		// When the video ends, play the next item in the playlist
-		vidPlayer.addEventListener("ended", () => {
-			playMedia(playlist);
-		});
+		// If the element is a video, create a video element for the media asset and append it to the body
+		if (mediaAsset.type === "video/mp4") {
+			const videoElement = document.createElement("video");
+			videoElement.id = playlistItem.name;
+			videoElement.src = mediaAssetURL;
+			videoElement.muted = true;
+			videoElement.setAttribute("style", "display: none;");
+			document.body.appendChild(videoElement);
+		}
+
+		// If the element is an image, create an image element for the media asset and append it to the body
+		if (mediaAsset.type === "image/png") {
+			const imageElement = document.createElement("img");
+			imageElement.id = playlistItem.name;
+			imageElement.src = mediaAssetURL;
+			imageElement.setAttribute("style", "display: none;");
+			document.body.appendChild(imageElement);
+		}
+	});
+};
+
+// Variables for the playMedia function
+let count = 0;
+let previousMediaAsset;
+let currentMediaAsset;
+
+// Play the media assets
+const playMedia = (playlist) => {
+	// Create repeating index value, to loop through the playlist indefinitely
+	let i = count % playlist.length;
+	currentMediaAsset = playlist[i];
+
+	// If there is a previous media asset, hide it
+	if (previousMediaAsset) {
+		const previousElement = document.querySelector(`#${previousMediaAsset.name}`);
+		previousElement.style = "display: none;";
 	}
-	// If the media asset is an image, display the image viewer and show the image for the specified duration
-	if (mediaAsset.type === "image/png") {
-		const vidPlayer = document.querySelector("#videoPlayer");
-		vidPlayer.style.display = "none";
-		const imgViewer = document.querySelector("#imageViewer");
-		imgViewer.style.display = "block";
-		imgViewer.setAttribute("src", URL.createObjectURL(mediaAsset));
+
+	// show the current media asset
+	const currentElement = document.querySelector(`#${currentMediaAsset.name}`);
+	currentElement.style = "display: block;";
+
+	// Update the variables for the next iteration
+	previousMediaAsset = currentMediaAsset;
+	count++;
+
+	// If the current media asset is a video, play it and then play the next media asset when it ends,
+	// otherwise, play the next media asset after the duration of the current media asset
+	if (currentMediaAsset.duration === "0") {
+		currentElement.play();
+		currentElement.addEventListener(
+			"ended",
+			() => {
+				playMedia(playlist);
+			},
+			{ once: true }
+		);
+	} else {
 		setTimeout(() => {
 			playMedia(playlist);
-		}, playlist[i].duration * 1000);
+		}, currentMediaAsset.duration * 1000);
 	}
-	// Increment the count variable to play the next item in the playlist
-	count++;
 };
 
 // Main Logic
 (async () => {
+	// Check if the app is running for the first time, if so, set the first run flag, set the playlist data, set the media assets, and update the playlist data
 	const firstRun = await getFirstRun();
 
 	if (firstRun) {
@@ -102,6 +139,11 @@ const playMedia = async (playlist) => {
 		setMediaAssets(data);
 		updatePlaylist(data);
 	}
+
+	// Get the playlist data, front-load the media assets, and play the them
 	const playlist = await getPlaylist();
-	playMedia(playlist);
+	frontLoadMediaAssets(playlist);
+	setTimeout(() => {
+		playMedia(playlist);
+	}, 20);
 })();
