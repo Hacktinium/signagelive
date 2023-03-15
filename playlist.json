@@ -1,0 +1,17 @@
+[
+	{
+		"name": "Video 1",
+		"location": "assets/2Default_cosmetics.mp4",
+		"duration": "0"
+	},
+	{
+		"name": "Image 1",
+		"location": "assets/LaborDay_land_HD.png",
+		"duration": "5"
+	},
+	{
+		"name": "Image 2",
+		"location": "assets/Menu_land_HD.png",
+		"duration": "5"
+	}
+]
